@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Movilsat | Auditorías de campo</title>
+<style>
+:root{--red:#7b1016;--dark:#252525;--bg:#f2f3f5;--line:#ddd}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#222;font:15px Arial,sans-serif}
+header{background:var(--red);color:white;padding:18px 16px}header h1{font-size:21px;margin:0}header p{margin:6px 0 0;font-size:13px;opacity:.9}
+main{max-width:900px;margin:auto;padding:14px}.card{background:#fff;border-radius:12px;padding:16px;margin:0 0 14px;box-shadow:0 2px 8px #0000000d}
+h2{font-size:18px;margin:0 0 12px}h3{font-size:16px;margin:0 0 8px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+label{display:block;font-weight:700;font-size:13px;margin:10px 0 5px}
+input,select,textarea{font:inherit;width:100%;padding:10px;border:1px solid #c9c9c9;border-radius:7px;background:white}
+textarea{min-height:76px;resize:vertical}
+button{border:0;border-radius:8px;padding:12px 14px;font-weight:700;font-size:14px;background:var(--red);color:white;cursor:pointer}
+button.dark{background:var(--dark)}button.light{background:#eee;color:#222}button.danger{background:#9b2226}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.actions button{flex:1}
+.note{font-size:12px;color:#555;line-height:1.4}.status{font-size:13px;margin-top:10px;font-weight:700}
+.tech{border:1px solid var(--line);border-radius:10px;margin-top:12px;overflow:hidden}
+.techhead{background:#f8f8f8;padding:12px;display:flex;align-items:center;gap:10px;justify-content:space-between}
+.techbody{padding:12px}.photos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.photo{border:1px dashed #aaa;border-radius:8px;padding:9px;min-width:0}.photo strong{font-size:12px;display:block;margin-bottom:7px}
+.photo input{font-size:11px;padding:6px}.photo img{display:none;width:100%;height:125px;object-fit:cover;border-radius:5px;margin-top:7px}
+.badge{font-size:11px;border-radius:20px;background:#eee;padding:5px 8px;white-space:nowrap}
+footer{text-align:center;color:#666;font-size:11px;padding:10px}
+@media(max-width:560px){.grid{grid-template-columns:1fr}.photos{grid-template-columns:1fr 1fr}.actions{flex-direction:column}.techhead{align-items:flex-start}}
+@media print{body{background:white;font-size:11px}header{background:#7b1016!important;print-color-adjust:exact}.noprint,button,input[type=file]{display:none!important}main{max-width:none;padding:0}.card{box-shadow:none;border:1px solid #ddd;break-inside:avoid}.tech{break-inside:avoid}.techbody{display:block}.photos{grid-template-columns:repeat(3,1fr)}.photo img{display:block!important;height:105px}.photo{break-inside:avoid}textarea,input,select{border:0;padding:3px}.techhead{background:#eee!important;print-color-adjust:exact} }
+</style>
+</head>
+<body>
+<header><h1>MOVILSAT | Auditorías de campo</h1><p>Prototipo offline-first · Registro de auditorías y evidencias fotográficas</p></header>
+<main>
+<section class="card">
+<h2>Datos generales</h2>
+<div class="grid">
+<div><label for="fecha">Fecha</label><input id="fecha" type="date"></div>
+<div><label for="localidad">Localidad / base</label><input id="localidad" placeholder="Ej.: San Juan"></div>
+<div><label for="supervisor">Supervisor</label><input id="supervisor" placeholder="Nombre y apellido"></div>
+<div><label for="contratista">Contratista</label><input id="contratista" value="Movilsat Comunicaciones S.A."></div>
+</div>
+<label for="obsGeneral">Observaciones generales</label><textarea id="obsGeneral" placeholder="Observaciones de la jornada, acciones generales, etc."></textarea>
+<div class="actions noprint">
+<button onclick="addTech()">+ Agregar técnico</button>
+<button class="dark" onclick="saveAudit()">Guardar en este celular</button>
+<button class="dark" onclick="window.print()">Generar / guardar PDF</button>
+</div>
+<div id="status" class="status" role="status">Preparando almacenamiento local…</div>
+<p class="note">El guardado local conserva los datos en este navegador. Para evitar pérdidas, genera también el PDF y conserva una copia de respaldo.</p>
+</section>
+
+<section class="card">
+<h2>Técnicos auditados <span id="count" class="badge">0 técnicos</span></h2>
+<p class="note">Puedes registrar hasta 15 técnicos en una auditoría. Cada técnico tiene seis espacios para fotos. Para sacar una foto desde el celular, elige Cámara si el dispositivo ofrece esa opción.</p>
+<div id="techList"></div>
+</section>
+
+<section class="card noprint">
+<h2>Auditorías guardadas en este celular</h2>
+<div class="actions">
+<button class="light" onclick="loadSaved()">Ver guardadas</button>
+<button class="light" onclick="exportBackup()">Exportar respaldo JSON</button>
+<label style="margin:0;flex:1">Importar respaldo JSON<input type="file" accept=".json,application/json" onchange="importBackup(event)"></label>
+</div>
+<div id="savedList" class="note" style="margin-top:12px">Todavía no se ha consultado el listado.</div>
+</section>
+</main>
+<footer>Prototipo de trabajo. La sincronización automática en la nube requiere configurar un proyecto de base de datos.</footer>
+<script>
+const photoLabels=["Herramientas","Kit de fibra","EPP","Vehículo","Trabajo realizado","Evidencia adicional"];
+let techs=[], db=null, auditId=null;
+const $=id=>document.getElementById(id);
+function makeId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+function setStatus(s){$("status").textContent=s}
+function initDB(){
+ return new Promise((resolve,reject)=>{
+  if(!("indexedDB" in window)){setStatus("Este navegador no permite almacenamiento local avanzado.");resolve(null);return}
+  const req=indexedDB.open("MovilsatAuditoriasDB",1);
+  req.onupgradeneeded=()=>{const d=req.result;if(!d.objectStoreNames.contains("audits"))d.createObjectStore("audits",{keyPath:"id"})};
+  req.onsuccess=()=>{db=req.result;resolve(db)};
+  req.onerror=()=>{setStatus("No se pudo iniciar el almacenamiento local.");resolve(null)};
+ });
+}
+function renderTechs(){
+ $("techList").innerHTML="";
+ techs.forEach((t,idx)=>{
+  const div=document.createElement("div");div.className="tech";
+  div.innerHTML=`<div class="techhead"><div><b>Técnico ${idx+1}: ${escapeHTML(t.nombre||"Sin nombre")}</b> <span class="badge">${escapeHTML(t.resultado||"Pendiente")}</span></div><button class="danger noprint" onclick="removeTech('${t.id}')">Quitar</button></div>
+  <div class="techbody">
+  <div class="grid">
+  <div><label>Nombre y apellido</label><input value="${escapeAttr(t.nombre||"")}" onchange="updateTech('${t.id}','nombre',this.value)" placeholder="Nombre del técnico"></div>
+  <div><label>DNI / legajo (opcional)</label><input value="${escapeAttr(t.legajo||"")}" onchange="updateTech('${t.id}','legajo',this.value)" placeholder="Identificación"></div>
+  <div><label>Orden de trabajo (opcional)</label><input value="${escapeAttr(t.ot||"")}" onchange="updateTech('${t.id}','ot',this.value)" placeholder="N.º de OT"></div>
+  <div><label>Resultado</label><select onchange="updateTech('${t.id}','resultado',this.value)">${["Conforme","No conforme","Con observaciones"].map(v=>`<option ${t.resultado===v?"selected":""}>${v}</option>`).join("")}</select></div>
+  </div>
+  <label>Observaciones / acciones correctivas</label><textarea onchange="updateTech('${t.id}','observaciones',this.value)" placeholder="Desvíos encontrados, acción y responsable...">${escapeHTML(t.observaciones||"")}</textarea>
+  <label>6 evidencias fotográficas</label><div class="photos">${photoLabels.map((p,i)=>`<div class="photo"><strong>${i+1}. ${p}</strong><input class="noprint" type="file" accept="image/*" capture="environment" onchange="addPhoto('${t.id}',${i},this.files[0])"><img id="im-${t.id}-${i}" style="${t.fotos&&t.fotos[i]?'display:block':''}" src="${t.fotos&&t.fotos[i]?t.fotos[i]:''}" alt="Foto ${i+1}"><div class="note">${t.fotos&&t.fotos[i]?"Foto cargada":"Sin foto cargada"}</div></div>`).join("")}</div>
+  </div>`;
+  $("techList").appendChild(div);
+ });
+ $("count").textContent=techs.length+" técnico"+(techs.length===1?"":"s");
+}
+function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function escapeAttr(s){return escapeHTML(s)}
+function addTech(){if(techs.length>=15){alert("El límite de esta auditoría es de 15 técnicos.");return}techs.push({id:makeId(),nombre:"",legajo:"",ot:"",resultado:"Conforme",observaciones:"",fotos:Array(6).fill("")});renderTechs()}
+function removeTech(id){if(confirm("¿Quitar este técnico de la auditoría actual?")){techs=techs.filter(t=>t.id!==id);renderTechs()}}
+function updateTech(id,k,v){const t=techs.find(x=>x.id===id);if(t)t[k]=v}
+function addPhoto(id,i,file){
+ if(!file)return;
+ const reader=new FileReader();
+ reader.onload=()=>{const t=techs.find(x=>x.id===id);if(t){t.fotos[i]=reader.result;renderTechs();setStatus("Foto cargada. Recuerda guardar la auditoría en este celular.")}};
+ reader.onerror=()=>alert("No se pudo leer la foto.");
+ reader.readAsDataURL(file);
+}
+function getAudit(){return {id:auditId||makeId(),fecha:$("fecha").value,localidad:$("localidad").value,supervisor:$("supervisor").value,contratista:$("contratista").value,observacionesGenerales:$("obsGeneral").value,tecnicos:techs,actualizado:new Date().toISOString()}}
+async function saveAudit(){
+ const audit=getAudit();auditId=audit.id;
+ if(!db)await initDB();
+ if(!db){setStatus("No se pudo guardar. Exporta el respaldo o revisa la configuración del navegador.");return}
+ try{await new Promise((res,rej)=>{const tx=db.transaction("audits","readwrite");tx.objectStore("audits").put(audit);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});
+ setStatus("✓ Auditoría guardada en este celular. Pendiente de sincronización en la nube.");loadSaved();
+ }catch(e){setStatus("Error al guardar. Puede faltar espacio por el tamaño de las fotos.")}
+}
+async function loadSaved(){
+ if(!db)await initDB();if(!db){$("savedList").textContent="Almacenamiento local no disponible.";return}
+ const all=await new Promise((res,rej)=>{const r=db.transaction("audits").objectStore("audits").getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error)});
+ if(!all.length){$("savedList").textContent="No hay auditorías guardadas todavía.";return}
+ $("savedList").innerHTML=all.sort((a,b)=>(b.actualizado||"").localeCompare(a.actualizado||"")).map(a=>`<div style="border-top:1px solid #ddd;padding:9px 0"><b>${escapeHTML(a.fecha||"Sin fecha")} · ${escapeHTML(a.localidad||"Sin localidad")}</b><br>${(a.tecnicos||[]).length} técnicos · ${escapeHTML(a.supervisor||"Sin supervisor")}<div class="actions"><button class="light" onclick="openAudit('${a.id}')">Abrir</button><button class="danger" onclick="deleteAudit('${a.id}')">Eliminar</button></div></div>`).join("");
+}
+async function openAudit(id){
+ const a=await new Promise(res=>{const r=db.transaction("audits").objectStore("audits").get(id);r.onsuccess=()=>res(r.result)});
+ if(!a)return;auditId=a.id;$("fecha").value=a.fecha||"";$("localidad").value=a.localidad||"";$("supervisor").value=a.supervisor||"";$("contratista").value=a.contratista||"";$("obsGeneral").value=a.observacionesGenerales||"";techs=a.tecnicos||[];renderTechs();setStatus("Auditoría cargada. Puedes editarla y volver a guardarla.");
+ window.scrollTo({top:0,behavior:"smooth"});
+}
+async function deleteAudit(id){if(!confirm("¿Eliminar definitivamente esta auditoría guardada en el celular?"))return;await new Promise(res=>{const tx=db.transaction("audits","readwrite");tx.objectStore("audits").delete(id);tx.oncomplete=res});loadSaved()}
+async function exportBackup(){
+ if(!db)await initDB();if(!db)return alert("Almacenamiento local no disponible.");
+ const all=await new Promise(res=>{const r=db.transaction("audits").objectStore("audits").getAll();r.onsuccess=()=>res(r.result||[])});
+ const blob=new Blob([JSON.stringify(all)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="respaldo_auditorias_movilsat.json";a.click();URL.revokeObjectURL(url);
+}
+async function importBackup(e){
+ const f=e.target.files[0];if(!f)return;
+ try{const data=JSON.parse(await f.text());if(!Array.isArray(data))throw new Error();
+  if(!db)await initDB();for(const a of data){await new Promise((res,rej)=>{const tx=db.transaction("audits","readwrite");tx.objectStore("audits").put(a);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)})}
+  setStatus("Respaldo importado correctamente.");loadSaved();
+ }catch(err){alert("No se pudo importar el respaldo. Comprueba que sea un JSON exportado desde esta app.")}e.target.value="";
+}
+$("fecha").valueAsDate=new Date();
+initDB().then(()=>{setStatus("Listo. Los cambios se guardan cuando pulses «Guardar en este celular».");addTech()});
+</script>
+</body></html>
